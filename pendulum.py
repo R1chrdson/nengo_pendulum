@@ -1,24 +1,38 @@
-import numpy as np
 import nengo
+import numpy as np
 
 
 class Pendulum:
     def __init__(
         self,
-        mass=1,
+        init_theta=30 * np.pi / 180,
         length=1,
         g=9.81,
-        init_theta=45 * np.pi / 180,
-        init_speed=0,
     ):
-        self.mass = mass
-        self.length = length
-        self.g = g
-        self.theta = init_theta
-        self.speed = init_speed
+        self.g = g if g is not None else 9.81
+        self.length = length if length is not None and length > 0 else 1
 
-    def step(self, u):
-        pass
+        self.omega = 0
+        self.theta = init_theta
+
+        self.prev_t = 0
+
+    def set_length(self, length):
+        if length is not None and length > 0:
+            self.length = length
+
+    def set_g(self, g):
+        if g is not None:
+            self.g = g
+
+    def step(self, t):
+        dt = t - self.prev_t
+        self.prev_t = t
+
+        self.omega += -self.g / self.length * np.sin(self.theta) * dt
+        self.theta += self.omega * dt
+        self.theta = (self.theta + np.pi) % (2 * np.pi) - np.pi
+        print(self.theta, self.omega)
 
     def update_html(self):
         pivot_x = 50
@@ -47,16 +61,25 @@ class PendulumNetwork(nengo.Network):
         with self:
 
             def func(t, x):
-                self.env.step(x)
+                length, g = x
+                self.env.set_length(length)
+                self.env.set_g(g)
+                self.env.step(t)
                 func._nengo_html_ = self.env.update_html()
-                return (self.env.theta,)
+                return (self.env.theta, np.sin(t))
 
-            self.pendulum = nengo.Node(func, size_in=1)
+            self.pendulum = nengo.Node(func, size_in=2)
 
-            self.u = nengo.Node(None, size_in=1, label="Control Signal")
-            nengo.Connection(self.u, self.pendulum) # Probably synapse=0
-
+            self.length = nengo.Node(None, size_in=1, label="Length")
+            self.g = nengo.Node(None, size_in=1, label="Gravity")
+            nengo.Connection(self.length, self.pendulum[0], synapse=None)
+            nengo.Connection(self.g, self.pendulum[1], synapse=None)
 
 
 with nengo.Network() as model:
-    env = PendulumNetwork()
+    env = PendulumNetwork(label="Pendulum")
+
+    length = nengo.Node(1, label="Length")
+    g = nengo.Node(9.81, label="Gravity")
+    nengo.Connection(length, env.length, synapse=None)
+    nengo.Connection(g, env.g, synapse=None)
